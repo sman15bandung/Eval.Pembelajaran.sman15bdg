@@ -317,6 +317,7 @@
             </div>
             <h3 class="text-xl font-bold text-center text-slate-900 mb-2">Akses Admin</h3>
             <p class="text-sm text-center text-slate-500 mb-6">Masukkan password admin</p>
+            <input type="email" id="adminEmail" placeholder="Email admin" autocomplete="username" class="w-full px-5 py-3 border-2 border-slate-200 rounded-xl mb-3 text-center outline-none focus:border-indigo-500 transition-colors font-medium">
             <input type="password" id="adminPin" onkeydown="if(event.key==='Enter')verifyPin()" class="w-full px-5 py-3 border-2 border-slate-200 rounded-xl mb-2 text-center text-2xl tracking-widest outline-none focus:border-indigo-500 focus:bg-indigo-50 transition-colors font-bold" placeholder="Password" autocomplete="current-password">
             <p id="pinError" class="text-rose-500 text-sm hidden mb-4 text-center font-medium">Password salah atau koneksi gagal.</p>
             <div class="flex space-x-3 mt-6">
@@ -348,7 +349,7 @@
            ========================================== */
         const SUPABASE_URL = 'https://tjfmiqdbijppkhimywrd.supabase.co';
         const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRqZm1pcWRiaWpwcGtoaW15d3JkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTI4MzQ3NzcsImV4cCI6MjEwODQxMDc3N30.wIGUYbV1pnyyNc7M_IR3JluBU8YgwZtY9OpZ_W_jkPk';
-        const ADMIN_EMAIL = 'admin@sekolah.local';
+        const ADMIN_EMAIL = '';
         const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
         async function loadKelas() {
@@ -592,6 +593,7 @@
         function openPinModal() {
             document.getElementById('pinModal').classList.remove('hidden');
             document.getElementById('adminPin').value = '';
+            try { document.getElementById('adminEmail').value = localStorage.getItem('adminEmail') || ''; } catch (e) {}
             document.getElementById('pinError').classList.add('hidden');
             setTimeout(() => document.getElementById('adminPin').focus(), 100);
         }
@@ -602,11 +604,13 @@
 
         async function verifyPin() {
             const pin = document.getElementById('adminPin').value;
-            const { error } = await sb.auth.signInWithPassword({ email: ADMIN_EMAIL, password: pin });
+            const { error } = await sb.auth.signInWithPassword({ email: (document.getElementById('adminEmail').value.trim() || ADMIN_EMAIL), password: pin });
             if (!error) {
+                try { localStorage.setItem('adminEmail', document.getElementById('adminEmail').value.trim()); } catch (e) {}
                 closePinModal();
                 showAdminView();
             } else {
+                document.getElementById('pinError').textContent = (error.message === 'Invalid login credentials') ? 'Email atau password salah.' : 'Gagal masuk: ' + error.message;
                 document.getElementById('pinError').classList.remove('hidden');
             }
         }
