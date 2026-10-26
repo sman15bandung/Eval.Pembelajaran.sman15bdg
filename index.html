@@ -1,6 +1,39 @@
 <!DOCTYPE html>
 <html lang="id">
 <head>
+<script>
+/* Banner error di layar (membantu debugging di HP). Ketuk banner untuk menutup. */
+(function () {
+    var msgs = [];
+    function show(m) {
+        if (msgs.indexOf(m) !== -1) return;
+        msgs.push(m);
+        var b = document.getElementById('__errBanner');
+        if (!b) {
+            b = document.createElement('div');
+            b.id = '__errBanner';
+            b.className = 'no-print';
+            b.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:99999;max-height:40vh;overflow:auto;background:#7f1d1d;color:#fff;font:12px/1.4 monospace;padding:8px 10px;white-space:pre-wrap;';
+            b.onclick = function () { b.remove(); msgs = []; };
+            (document.body || document.documentElement).appendChild(b);
+        }
+        b.textContent = '\u26A0 Error halaman (ketuk untuk menutup):\n' + msgs.join('\n');
+    }
+    window.addEventListener('error', function (e) {
+        var t = e.target;
+        if (t && t !== window && (t.src || t.href)) show('Gagal memuat file: ' + (t.src || t.href));
+        else show('Error: ' + e.message + (e.lineno ? ' (baris ' + e.lineno + ')' : ''));
+    }, true);
+    window.addEventListener('unhandledrejection', function (e) {
+        show('Error async: ' + ((e.reason && e.reason.message) || e.reason));
+    });
+    window.addEventListener('load', function () {
+        if (typeof supabase === 'undefined') show('Library Supabase tidak termuat (cek koneksi/CDN).');
+        if (typeof Chart === 'undefined') show('Library Chart.js tidak termuat (cek koneksi/CDN).');
+    });
+})();
+</script>
+
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Survei Evaluasi Pembelajaran Guru</title>
