@@ -188,6 +188,7 @@
                 <div class="no-print flex flex-wrap items-center gap-4 bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
                     <button onclick="cetakPDF()" class="px-5 py-2.5 bg-slate-900 text-white rounded-xl font-bold hover:bg-slate-700 transition-colors">🖨️ Cetak / Simpan PDF</button>
                     <button onclick="updateAdminData()" class="px-5 py-2.5 bg-white border border-slate-300 text-slate-700 rounded-xl font-bold hover:bg-slate-50 transition-colors">🔄 Muat Ulang Data</button>
+                    <span id="dataStatus" class="text-xs font-medium text-slate-400"></span>
                     <label class="flex items-center gap-2 text-sm font-semibold text-slate-600 cursor-pointer">
                         <input type="checkbox" id="cetakKomentar" class="w-4 h-4 rounded"> Sertakan rekap Kritik & Saran
                     </label>
@@ -365,11 +366,13 @@
             let all = [], from = 0;
             while (true) {
                 const { data, error } = await sb.from('evaluasi_respons').select('*').order('created_at').range(from, from + 999);
-                if (error) { alert('Gagal memuat data: ' + error.message); return; }
+                if (error) { document.getElementById('dataStatus').textContent = 'Gagal memuat: ' + error.message; alert('Gagal memuat data: ' + error.message); return; }
                 all = all.concat(data);
                 if (data.length < 1000) break;
                 from += 1000;
             }
+            const { data: sess } = await sb.auth.getSession();
+            document.getElementById('dataStatus').textContent = 'Dimuat ' + all.length + ' jawaban' + (sess.session ? '' : ' (PERINGATAN: sesi admin tidak aktif, login ulang)') + ' • ' + new Date().toLocaleTimeString('id-ID');
             appState.surveys = all.map(r => {
                 const o = {
                     submissionId: r.submission_id,
@@ -668,6 +671,9 @@
         async function updateAdminData() {
             if (document.getElementById('adminView').classList.contains('hidden')) return;
             try { await loadSurveys(); } catch (e) { alert('Gagal memuat data: ' + e.message); return; }
+            try { renderAdminAnalysis(); renderAdminRecap(); }
+            catch (e) { console.error(e); document.getElementById('autoInterpretation').textContent = 'Error tampilan: ' + e.message; document.getElementById('dataStatus').textContent += ' • error tampilan: ' + e.message; }
+            return;
             renderAdminAnalysis();
             renderAdminRecap();
         }
