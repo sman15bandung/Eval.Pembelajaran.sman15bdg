@@ -187,6 +187,7 @@
                 <!-- Toolbar cetak -->
                 <div class="no-print flex flex-wrap items-center gap-4 bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
                     <button onclick="cetakPDF()" class="px-5 py-2.5 bg-slate-900 text-white rounded-xl font-bold hover:bg-slate-700 transition-colors">🖨️ Cetak / Simpan PDF</button>
+                    <button onclick="updateAdminData()" class="px-5 py-2.5 bg-white border border-slate-300 text-slate-700 rounded-xl font-bold hover:bg-slate-50 transition-colors">🔄 Muat Ulang Data</button>
                     <label class="flex items-center gap-2 text-sm font-semibold text-slate-600 cursor-pointer">
                         <input type="checkbox" id="cetakKomentar" class="w-4 h-4 rounded"> Sertakan rekap Kritik & Saran
                     </label>
@@ -640,6 +641,7 @@
         }
 
         function switchAdminTab(tabName) {
+            if (tabName === 'analisis' && document.getElementById('tabAnalisis').classList.contains('hidden')) updateAdminData();
             const map = { analisis: ['tabAnalisis', 'btnTabAnalisis'], pengaturan: ['tabPengaturan', 'btnTabPengaturan'], password: ['tabPassword', 'btnTabPassword'] };
             const activeClass = "px-5 py-2.5 bg-indigo-600 text-white rounded-xl font-semibold shadow-md whitespace-nowrap transition-colors";
             const inactiveClass = "px-5 py-2.5 bg-white text-slate-600 hover:bg-slate-50 border border-slate-200 rounded-xl font-semibold shadow-sm whitespace-nowrap transition-colors";
@@ -665,7 +667,7 @@
 
         async function updateAdminData() {
             if (document.getElementById('adminView').classList.contains('hidden')) return;
-            await loadSurveys();
+            try { await loadSurveys(); } catch (e) { alert('Gagal memuat data: ' + e.message); return; }
             renderAdminAnalysis();
             renderAdminRecap();
         }
@@ -850,14 +852,25 @@
             if(!jenjang || !mapelRaw) return;
 
             const mapelArray = mapelRaw.split(',').map(m => m.trim()).filter((m, i, a) => m !== '' && a.indexOf(m) === i);
-            const { error } = await sb.from('evaluasi_kelas').upsert(kelasList.map(k => ({ kelas: k, jenjang: jenjang, mapel: mapelArray })));
+            const rowsUp = kelasList.map(k => ({ kelas: k, jenjang: jenjang, mapel: [...new Set([...(appState.tingkatMapel[k] || []), ...mapelArray])] }));
+            const { error } = await sb.from('evaluasi_kelas').upsert(rowsUp);
             if (error) { alert('Gagal menyimpan: ' + error.message); return; }
-            kelasList.forEach(k => { appState.tingkatMapel[k] = mapelArray; appState.jenjangOf[k] = jenjang; });
+            rowsUp.forEach(r => { appState.tingkatMapel[r.kelas] = r.mapel; appState.jenjangOf[r.kelas] = r.jenjang; });
             
             this.reset();
             renderAdminPengaturan();
             updateKelasDropdown();
         });
+
+        async function hapusMapel(k, i) {
+            const arr = (appState.tingkatMapel[k] || []).filter((_, idx) => idx !== i);
+            if (!arr.length) { alert('Kelas harus punya minimal satu mapel. Untuk menghapus kelasnya, pakai tombol "Hapus Kelas".'); return; }
+            const { error } = await sb.from('evaluasi_kelas').update({ mapel: arr }).eq('kelas', k);
+            if (error) { alert('Gagal menghapus mapel: ' + error.message); return; }
+            appState.tingkatMapel[k] = arr;
+            renderAdminPengaturan();
+            updateKelasDropdown();
+        }
 
         function editKelas(k) {
             document.getElementById('inputJenjang').value = appState.jenjangOf[k] || k;
@@ -885,7 +898,7 @@
             }
 
             Object.keys(appState.tingkatMapel).forEach(k => {
-                const mapels = appState.tingkatMapel[k].map(esc).join(' • ');
+                const mapels = '<span class="flex flex-wrap gap-2 mt-2">' + appState.tingkatMapel[k].map((m, i) => `<span class="inline-flex items-center gap-1 bg-slate-100 text-slate-700 rounded-full pl-3 pr-1 py-1 text-sm font-semibold">${esc(m)}<button type="button" data-k="${esc(k)}" data-i="${i}" onclick="hapusMapel(this.dataset.k, +this.dataset.i)" class="w-5 h-5 rounded-full text-slate-400 hover:bg-rose-100 hover:text-rose-600 leading-none" title="Hapus mapel ini">×</button></span>`).join('') + '</span>';
                 container.innerHTML += `
                     <div class="border border-slate-200 rounded-xl p-5 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 hover:shadow-md transition-shadow bg-slate-50/50">
                         <div>
@@ -893,8 +906,7 @@
                             <h4 class="text-lg font-extrabold text-slate-800">${esc(k)}</h4>
                             <p class="text-sm font-medium text-indigo-600 mt-1">${mapels}</p>
                         </div>
-                        <div class="flex gap-2"><button data-k="${esc(k)}" onclick="editKelas(this.dataset.k)" class="px-4 py-2 bg-white border border-indigo-200 text-indigo-600 hover:bg-indigo-50 rounded-lg text-sm font-bold whitespace-nowrap transition-all shadow-sm">Edit</button>
-                        <button data-k="${esc(k)}" onclick="hapusTingkat(this.dataset.k)" class="px-4 py-2 bg-white border border-rose-200 text-rose-600 hover:bg-rose-50 hover:border-rose-300 rounded-lg text-sm font-bold whitespace-nowrap transition-all shadow-sm">
+                        <div class="flex gap-2"><button data-k="${esc(k)}" onclick="hapusTingkat(this.dataset.k)" class="px-4 py-2 bg-white border border-rose-200 text-rose-600 hover:bg-rose-50 hover:border-rose-300 rounded-lg text-sm font-bold whitespace-nowrap transition-all shadow-sm">
                             Hapus Kelas</button></div>
                     </div>
                 `;
