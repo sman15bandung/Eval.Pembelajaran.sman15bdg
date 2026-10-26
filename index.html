@@ -227,11 +227,31 @@
                     </label>
                 </div>
                 
+                <!-- Diagram & analisis per tingkat, kelas, mapel -->
+                <div class="bg-white p-6 sm:p-8 rounded-2xl shadow-sm border border-slate-100">
+                    <h2 class="text-xl font-bold text-slate-800 mb-8">📈 Hasil Survei dalam Diagram</h2>
+                    <div class="mb-10 last:mb-0">
+                        <h3 class="text-lg font-bold text-slate-800 mb-4">Per Tingkat (X, XI, XII)</h3>
+                        <div class="w-full max-w-4xl mx-auto mb-5 relative"><canvas id="chartTingkat"></canvas></div>
+                        <div id="analisisTingkat" class="bg-indigo-50/50 border border-indigo-100 p-5 rounded-2xl text-sm sm:text-base text-slate-700 leading-relaxed"></div>
+                    </div>
+                    <div class="mb-10 last:mb-0">
+                        <h3 class="text-lg font-bold text-slate-800 mb-4">Per Kelas</h3>
+                        <div class="w-full max-w-4xl mx-auto mb-5 relative"><canvas id="chartKelas"></canvas></div>
+                        <div id="analisisKelas" class="bg-indigo-50/50 border border-indigo-100 p-5 rounded-2xl text-sm sm:text-base text-slate-700 leading-relaxed"></div>
+                    </div>
+                    <div class="mb-10 last:mb-0">
+                        <h3 class="text-lg font-bold text-slate-800 mb-4">Per Mata Pelajaran (semua kelas)</h3>
+                        <div class="w-full max-w-4xl mx-auto mb-5 relative"><canvas id="chartMapel"></canvas></div>
+                        <div id="analisisMapel" class="bg-indigo-50/50 border border-indigo-100 p-5 rounded-2xl text-sm sm:text-base text-slate-700 leading-relaxed"></div>
+                    </div>
+                </div>
+
                 <!-- Diagram dan Interpretasi Otomatis -->
                 <div class="bg-white p-6 sm:p-8 rounded-2xl shadow-sm border border-slate-100">
                     <h2 class="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2">
                         <span class="bg-indigo-100 text-indigo-600 p-1.5 rounded-lg"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z"></path></svg></span>
-                        Grafik Kinerja Mata Pelajaran
+                        Grafik Detail per Kelas &amp; Mata Pelajaran
                     </h2>
                     <div class="w-full max-w-4xl mx-auto mb-8 relative">
                         <canvas id="analysisChart" width="400" height="180"></canvas>
@@ -270,7 +290,12 @@
 
                 <!-- Rekap Semua Survei -->
                 <div class="bg-white p-6 sm:p-8 rounded-2xl shadow-sm border border-slate-100">
-                    <h2 class="text-xl font-bold text-slate-800 mb-6">Rekap Seluruh Survei (Kritik & Saran)</h2>
+                    <h2 class="text-xl font-bold text-slate-800 mb-4">Rekap Kritik & Saran</h2>
+                    <div class="no-print flex flex-wrap items-center gap-3 mb-4">
+                        <select id="recapKelas" onchange="onRecapFilter(true)" class="px-3 py-2 border border-slate-300 rounded-xl text-sm font-semibold bg-white"><option value="">Semua kelas</option></select>
+                        <select id="recapMapel" onchange="onRecapFilter(false)" class="px-3 py-2 border border-slate-300 rounded-xl text-sm font-semibold bg-white"><option value="">Semua mapel</option></select>
+                        <label class="flex items-center gap-2 text-sm font-semibold text-slate-600 cursor-pointer"><input type="checkbox" id="recapKomentar" checked onchange="onRecapFilter(false)" class="w-4 h-4 rounded"> Hanya yang ada komentar</label>
+                    </div>
                     <div class="overflow-x-auto rounded-xl border border-slate-200">
                         <table class="min-w-full divide-y divide-slate-200 text-sm">
                             <thead class="bg-slate-50">
@@ -287,6 +312,11 @@
                                 <!-- Populated by JS -->
                             </tbody>
                         </table>
+                    </div>
+                    <div class="no-print flex items-center justify-between gap-3 mt-4">
+                        <button id="recapPrev" onclick="recapGo(-1)" class="px-4 py-2 bg-white border border-slate-300 rounded-xl text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-40">&larr; Sebelumnya</button>
+                        <span id="recapInfo" class="text-xs sm:text-sm font-semibold text-slate-500 text-center"></span>
+                        <button id="recapNext" onclick="recapGo(1)" class="px-4 py-2 bg-white border border-slate-300 rounded-xl text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-40">Berikutnya &rarr;</button>
                     </div>
                 </div>
             </div>
@@ -395,27 +425,82 @@
             data.forEach(r => { appState.tingkatMapel[r.kelas] = r.mapel; appState.jenjangOf[r.kelas] = r.jenjang || r.kelas; });
         }
 
-        async function loadSurveys() {
-            let all = [], from = 0;
-            while (true) {
-                const { data, error } = await sb.from('evaluasi_respons').select('*').order('created_at').range(from, from + 999);
-                if (error) { document.getElementById('dataStatus').textContent = 'Gagal memuat: ' + error.message; alert('Gagal memuat data: ' + error.message); return; }
-                all = all.concat(data);
-                if (data.length < 1000) break;
-                from += 1000;
-            }
+        /* ===== Data admin: agregasi dilakukan di server (view Supabase), tidak lagi memuat ribuan baris ===== */
+        const QCOLS = 'q1,q2,q3,q4,q5,q6,q7';
+        let rekapRows = [];            // [{kelas, mapel, jumlah, skor}]
+        let ringkasan = { pengisi: 0, total: 0, skor: 0 };
+        let recapState = { page: 0, size: 25, total: 0 };
+        const rowAvg = r => (['q1','q2','q3','q4','q5','q6','q7'].reduce((t, k) => t + (parseInt(r[k]) || 0), 0) / 7);
+
+        async function loadRekap() {
+            const st = document.getElementById('dataStatus');
+            st.textContent = 'Memuat data...';
             const { data: sess } = await sb.auth.getSession();
-            document.getElementById('dataStatus').textContent = 'Dimuat ' + all.length + ' jawaban' + (sess.session ? '' : ' (PERINGATAN: sesi admin tidak aktif, login ulang)') + ' • ' + new Date().toLocaleTimeString('id-ID');
-            appState.surveys = all.map(r => {
-                const o = {
-                    submissionId: r.submission_id,
-                    timestamp: new Date(r.created_at).toLocaleString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
-                    kelas: r.kelas, mapel: r.mapel,
-                    halPositif: r.hal_positif || '-', saran: r.saran || '-'
-                };
-                QUESTIONS.forEach(q => o[q.id] = r[q.id]);
-                return o;
-            });
+            if (!sess.session) throw new Error('Sesi admin tidak aktif, silakan tutup admin lalu login ulang.');
+
+            const [r1, r2] = await Promise.all([
+                sb.from('evaluasi_rekap').select('kelas,mapel,jumlah,skor'),
+                sb.from('evaluasi_ringkasan').select('pengisi,total,skor').maybeSingle()
+            ]);
+            if (!r1.error && !r2.error) {
+                rekapRows = r1.data || [];
+                ringkasan = r2.data || { pengisi: 0, total: 0, skor: 0 };
+            } else {
+                // Cadangan jika view SQL belum dibuat: hitung di browser per 1000 baris (tanpa menggambar tabel besar)
+                const agg = {}, subs = new Set(); let total = 0, sumAll = 0, from = 0;
+                while (true) {
+                    const { data, error } = await sb.from('evaluasi_respons').select('submission_id,kelas,mapel,' + QCOLS).order('created_at').range(from, from + 999);
+                    if (error) throw new Error(error.message);
+                    data.forEach(r => {
+                        const k = r.kelas + '||' + r.mapel, v = rowAvg(r);
+                        if (!agg[k]) agg[k] = { kelas: r.kelas, mapel: r.mapel, jumlah: 0, sum: 0 };
+                        agg[k].jumlah++; agg[k].sum += v; subs.add(r.submission_id); total++; sumAll += v;
+                    });
+                    st.textContent = 'Memuat data... ' + total;
+                    if (data.length < 1000) break;
+                    from += 1000;
+                }
+                rekapRows = Object.values(agg).map(x => ({ kelas: x.kelas, mapel: x.mapel, jumlah: x.jumlah, skor: x.sum / x.jumlah }));
+                ringkasan = { pengisi: subs.size, total: total, skor: total ? sumAll / total : 0 };
+            }
+            st.textContent = 'Dimuat ' + ringkasan.total + ' jawaban dari ' + ringkasan.pengisi + ' pengisi • ' + new Date().toLocaleTimeString('id-ID');
+        }
+
+        async function loadRecap() {
+            const body = document.getElementById('recapTableBody');
+            body.innerHTML = '<tr><td colspan="6" class="px-5 py-8 text-center text-slate-500 font-medium">Memuat komentar...</td></tr>';
+            const kelas = document.getElementById('recapKelas').value, mapel = document.getElementById('recapMapel').value;
+            let q = sb.from('evaluasi_respons').select('created_at,kelas,mapel,hal_positif,saran,' + QCOLS, { count: 'exact' });
+            if (kelas) q = q.eq('kelas', kelas);
+            if (mapel) q = q.eq('mapel', mapel);
+            if (document.getElementById('recapKomentar').checked) q = q.or('hal_positif.neq.,saran.neq.');
+            const from = recapState.page * recapState.size;
+            const { data, count, error } = await q.order('created_at', { ascending: false }).range(from, from + recapState.size - 1);
+            if (error) { body.innerHTML = '<tr><td colspan="6" class="px-5 py-8 text-center text-rose-600 font-medium">Gagal memuat komentar: ' + esc(error.message) + '</td></tr>'; return; }
+            recapState.total = count || 0;
+            renderAdminRecap(data || []);
+        }
+
+        function onRecapFilter(kelasChanged) {
+            if (kelasChanged) fillMapelFilter();
+            recapState.page = 0;
+            loadRecap();
+        }
+        function recapGo(d) { recapState.page += d; loadRecap(); }
+
+        function fillRecapFilters() {
+            const ks = [...new Set(rekapRows.map(r => r.kelas))].sort();
+            const sel = document.getElementById('recapKelas'), cur = sel.value;
+            sel.innerHTML = '<option value="">Semua kelas</option>' + ks.map(k => '<option value="' + esc(k) + '">' + esc(k) + '</option>').join('');
+            sel.value = ks.includes(cur) ? cur : '';
+            fillMapelFilter();
+        }
+        function fillMapelFilter() {
+            const kelas = document.getElementById('recapKelas').value;
+            const ms = [...new Set(rekapRows.filter(r => !kelas || r.kelas === kelas).map(r => r.mapel))].sort();
+            const sel = document.getElementById('recapMapel'), cur = sel.value;
+            sel.innerHTML = '<option value="">Semua mapel</option>' + ms.map(m => '<option value="' + esc(m) + '">' + esc(m) + '</option>').join('');
+            sel.value = ms.includes(cur) ? cur : '';
         }
 
         let appState = {
@@ -701,181 +786,137 @@
             this.reset();
         });
 
+        /* ===== Diagram & analisis per tingkat / kelas / mapel ===== */
+        const charts = {};
+        const barColor = v => v < 3 ? 'rgba(244, 63, 94, 0.85)' : v < 4 ? 'rgba(245, 158, 11, 0.85)' : 'rgba(16, 185, 129, 0.85)';
+        const bandOf = v => v >= 4.5 ? 'Sangat baik' : v >= 4 ? 'Baik' : v >= 3 ? 'Cukup' : 'Perlu perbaikan';
+        const tingkatOf = k => { const m = String(k).toUpperCase().match(/^(XII|XI|X)(?![A-Z])/); return m ? 'Kelas ' + m[1] : 'Lainnya'; };
+
+        function drawBar(id, labels, values, colors, counts, horizontal) {
+            const ctx = document.getElementById(id);
+            if (!ctx) return;
+            if (charts[id]) charts[id].destroy();
+            ctx.parentElement.style.height = horizontal ? Math.max(240, labels.length * 24 + 60) + 'px' : '280px';
+            Chart.defaults.font.family = "'Plus Jakarta Sans', sans-serif";
+            const ax = horizontal ? 'x' : 'y';
+            charts[id] = new Chart(ctx, {
+                type: 'bar',
+                data: { labels: labels, datasets: [{ label: 'Skor Rata-rata (/5)', data: values, backgroundColor: colors, borderRadius: 4, borderSkipped: false }] },
+                options: {
+                    indexAxis: horizontal ? 'y' : 'x', responsive: true, maintainAspectRatio: false, animation: false,
+                    plugins: { legend: { display: false }, tooltip: { displayColors: false, callbacks: { label: c => 'Skor ' + c.parsed[ax].toFixed(2) + ' • ' + counts[c.dataIndex] + ' penilaian' } } },
+                    scales: { [ax]: { beginAtZero: true, max: 5, grid: { color: '#f1f5f9' } }, [horizontal ? 'y' : 'x']: { grid: { display: false }, ticks: { autoSkip: false, font: { size: 11 } } } }
+                }
+            });
+        }
+
+        function groupBy(keyFn) {
+            const g = {};
+            rekapRows.forEach(r => { const k = keyFn(r); const o = g[k] || (g[k] = { key: k, n: 0, sum: 0 }); o.n += r.jumlah; o.sum += (Number(r.skor) || 0) * r.jumlah; });
+            return Object.values(g).map(o => ({ key: o.key, n: o.n, skor: o.sum / o.n }));
+        }
+
+        function analisisText(items, noun) {
+            if (!items.length) return 'Belum ada data.';
+            const s = [...items].sort((a, b) => b.skor - a.skor), hi = s[0], lo = s[s.length - 1];
+            const f = x => '<strong>' + esc(x.key) + '</strong> (' + x.skor.toFixed(2) + ', ' + bandOf(x.skor) + ')';
+            let t = '<ul class="space-y-2 list-disc pl-5">';
+            if (items.length <= 4) t += '<li>' + s.map(f).join(' • ') + '</li>';
+            t += '<li>Tertinggi: ' + f(hi) + ' dari ' + hi.n + ' penilaian.</li>';
+            if (items.length > 1) t += '<li>Terendah: ' + f(lo) + ' dari ' + lo.n + ' penilaian. Selisih tertinggi–terendah ' + (hi.skor - lo.skor).toFixed(2) + ' poin.</li>';
+            const low = s.filter(x => x.skor < 3.5);
+            if (low.length) t += '<li>⚠️ Perlu perhatian (skor di bawah 3,5): ' + low.slice(-8).reverse().map(x => esc(x.key) + ' ' + x.skor.toFixed(2)).join(', ') + (low.length > 8 ? ', dan ' + (low.length - 8) + ' lainnya' : '') + '.</li>';
+            else t += '<li>✅ Semua ' + noun + ' memiliki skor 3,5 ke atas.</li>';
+            const below = s.filter(x => x.skor < Number(ringkasan.skor)).length;
+            t += '<li>' + below + ' dari ' + items.length + ' ' + noun + ' berada di bawah rata-rata keseluruhan (' + Number(ringkasan.skor).toFixed(2) + ').</li></ul>';
+            return t;
+        }
+
+        function renderGroupAnalysis() {
+            const defs = [
+                { chart: 'chartTingkat', box: 'analisisTingkat', noun: 'tingkat', horizontal: false, items: groupBy(r => tingkatOf(r.kelas)).sort((a, b) => a.key.localeCompare(b.key, 'id', { numeric: true })) },
+                { chart: 'chartKelas', box: 'analisisKelas', noun: 'kelas', horizontal: true, items: groupBy(r => r.kelas).sort((a, b) => String(a.key).localeCompare(String(b.key), 'id', { numeric: true })) },
+                { chart: 'chartMapel', box: 'analisisMapel', noun: 'mata pelajaran', horizontal: true, items: groupBy(r => r.mapel).sort((a, b) => b.skor - a.skor) }
+            ];
+            defs.forEach(d => {
+                if (charts[d.chart]) { charts[d.chart].destroy(); delete charts[d.chart]; }
+                document.getElementById(d.box).innerHTML = analisisText(d.items, d.noun);
+                if (d.items.length) drawBar(d.chart, d.items.map(x => x.key), d.items.map(x => +x.skor.toFixed(2)), d.items.map(x => barColor(x.skor)), d.items.map(x => x.n), d.horizontal);
+            });
+        }
+
         async function updateAdminData() {
             if (document.getElementById('adminView').classList.contains('hidden')) return;
-            try { await loadSurveys(); } catch (e) { alert('Gagal memuat data: ' + e.message); return; }
-            try { renderAdminAnalysis(); renderAdminRecap(); }
-            catch (e) { console.error(e); document.getElementById('autoInterpretation').textContent = 'Error tampilan: ' + e.message; document.getElementById('dataStatus').textContent += ' • error tampilan: ' + e.message; }
-            return;
-            renderAdminAnalysis();
-            renderAdminRecap();
+            const st = document.getElementById('dataStatus');
+            try { await loadRekap(); }
+            catch (e) { console.error(e); st.textContent = 'Gagal memuat: ' + e.message; document.getElementById('autoInterpretation').textContent = 'Gagal memuat data: ' + e.message; return; }
+            try { renderAdminAnalysis(); renderGroupAnalysis(); fillRecapFilters(); }
+            catch (e) { console.error(e); st.textContent += ' • error tampilan: ' + e.message; }
+            recapState.page = 0;
+            await loadRecap();
         }
 
         function renderAdminAnalysis() {
             const tbody = document.getElementById('analysisTableBody');
-            const interpretationBox = document.getElementById('autoInterpretation');
-            tbody.innerHTML = '';
+            const box = document.getElementById('autoInterpretation');
+            if (analysisChartInstance) { analysisChartInstance.destroy(); analysisChartInstance = null; }
 
-            if (appState.surveys.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="4" class="px-5 py-8 text-center text-slate-500 font-medium">Belum ada data survei yang masuk.</td></tr>`;
-                interpretationBox.innerHTML = 'Belum ada data yang cukup untuk memberikan insight dan analisis.';
-                if(analysisChartInstance) analysisChartInstance.destroy();
+            if (!rekapRows.length) {
+                tbody.innerHTML = '<tr><td colspan="4" class="px-5 py-8 text-center text-slate-500 font-medium">Belum ada data survei yang masuk.</td></tr>';
+                box.innerHTML = 'Belum ada data yang cukup untuk memberikan insight dan analisis.';
                 return;
             }
 
-            let stats = {};
-            appState.surveys.forEach(s => {
-                if (!stats[s.kelas]) stats[s.kelas] = {};
-                if (!stats[s.kelas][s.mapel]) stats[s.kelas][s.mapel] = { sumScore: 0, count: 0 };
-                
-                let sum = 0;
-                QUESTIONS.forEach(q => sum += parseInt(s[q.id] || 0));
-                let avgSubmission = sum / QUESTIONS.length;
-                
-                stats[s.kelas][s.mapel].sumScore += avgSubmission;
-                stats[s.kelas][s.mapel].count += 1;
+            const rows = [...rekapRows].sort((x, y) => String(x.kelas).localeCompare(String(y.kelas), 'id', { numeric: true }) || String(x.mapel).localeCompare(String(y.mapel), 'id'));
+            const colorOf = v => v < 3 ? ['text-rose-600 bg-rose-50', 'rgba(244, 63, 94, 0.85)'] : v < 4 ? ['text-amber-600 bg-amber-50', 'rgba(245, 158, 11, 0.85)'] : ['text-emerald-600 bg-emerald-50', 'rgba(16, 185, 129, 0.85)'];
+
+            const html = [], labels = [], values = [], colors = [], scored = [];
+            rows.forEach(r => {
+                const v = Number(r.skor) || 0, c = colorOf(v), label = r.kelas + ' - ' + r.mapel;
+                html.push('<tr class="hover:bg-slate-50/50 transition-colors">'
+                    + '<td class="px-5 py-4 whitespace-nowrap font-semibold text-slate-700">' + esc(r.kelas) + '</td>'
+                    + '<td class="px-5 py-4 whitespace-nowrap font-medium text-slate-700">' + esc(r.mapel) + '</td>'
+                    + '<td class="px-5 py-4 text-center font-medium text-slate-600">' + r.jumlah + '</td>'
+                    + '<td class="px-5 py-4 text-center"><span class="px-3 py-1 rounded-full font-bold ' + c[0] + '">' + v.toFixed(2) + '</span></td></tr>');
+                labels.push(label); values.push(+v.toFixed(2)); colors.push(c[1]); scored.push({ label: label, score: +v.toFixed(2) });
             });
+            tbody.innerHTML = html.join('');
 
-            let chartLabels = [];
-            let chartData = [];
-            let chartColors = [];
-            let mapelScores = [];
+            drawBar('analysisChart', labels, values, colors, rows.map(r => r.jumlah), true);
 
-            Object.keys(stats).sort().forEach(kelas => {
-                Object.keys(stats[kelas]).sort().forEach(mapel => {
-                    const data = stats[kelas][mapel];
-                    const avgFinal = (data.sumScore / data.count).toFixed(2);
-                    
-                    let colorClass = "text-emerald-600 bg-emerald-50";
-                    let barColor = "rgba(16, 185, 129, 0.85)"; // Emerald
-                    
-                    if(avgFinal < 3.0) {
-                        colorClass = "text-rose-600 bg-rose-50";
-                        barColor = "rgba(244, 63, 94, 0.85)"; // Rose
-                    }
-                    else if(avgFinal < 4.0) {
-                        colorClass = "text-amber-600 bg-amber-50";
-                        barColor = "rgba(245, 158, 11, 0.85)"; // Amber
-                    }
-
-                    tbody.innerHTML += `
-                        <tr class="hover:bg-slate-50/50 transition-colors">
-                            <td class="px-5 py-4 whitespace-nowrap font-semibold text-slate-700">${esc(kelas)}</td>
-                            <td class="px-5 py-4 whitespace-nowrap font-medium text-slate-700">${esc(mapel)}</td>
-                            <td class="px-5 py-4 text-center font-medium text-slate-600">${data.count}</td>
-                            <td class="px-5 py-4 text-center">
-                                <span class="px-3 py-1 rounded-full font-bold ${colorClass}">${avgFinal}</span>
-                            </td>
-                        </tr>
-                    `;
-
-                    chartLabels.push(`${kelas} - ${mapel}`);
-                    chartData.push(parseFloat(avgFinal));
-                    chartColors.push(barColor);
-                    mapelScores.push({ label: `${kelas} - ${mapel}`, score: parseFloat(avgFinal) });
-                });
-            });
-
-            // Modernize Chart.js design
-            Chart.defaults.font.family = "'Plus Jakarta Sans', sans-serif";
-            const ctx = document.getElementById('analysisChart');
-            if (analysisChartInstance) analysisChartInstance.destroy();
-            
-            if (ctx) {
-                analysisChartInstance = new Chart(ctx, {
-                    type: 'bar',
-                    data: {
-                        labels: chartLabels,
-                        datasets: [{
-                            label: 'Skor Rata-rata (/5)',
-                            data: chartData,
-                            backgroundColor: chartColors,
-                            borderRadius: 6,
-                            borderSkipped: false,
-                            barPercentage: 0.6
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        plugins: {
-                            legend: { display: false },
-                            tooltip: {
-                                backgroundColor: 'rgba(15, 23, 42, 0.9)',
-                                padding: 12,
-                                cornerRadius: 8,
-                                displayColors: false
-                            }
-                        },
-                        scales: {
-                            y: {
-                                beginAtZero: true,
-                                max: 5,
-                                grid: { color: '#f1f5f9', drawBorder: false }
-                            },
-                            x: {
-                                grid: { display: false, drawBorder: false },
-                                ticks: { font: { weight: '600' } }
-                            }
-                        }
-                    }
-                });
-            }
-
-            if (mapelScores.length > 0) {
-                mapelScores.sort((a, b) => b.score - a.score);
-                const highest = mapelScores[0];
-                const lowest = mapelScores[mapelScores.length - 1];
-                let sumAll = chartData.reduce((a,b) => a+b, 0);
-                let avgAll = (appState.surveys.reduce((t, s) => t + QUESTIONS.reduce((x, q) => x + parseInt(s[q.id] || 0), 0) / QUESTIONS.length, 0) / appState.surveys.length).toFixed(2);
-                
-                let txt = `<p class="font-medium text-slate-700">Dari total <strong class="text-indigo-600">${new Set(appState.surveys.map(s => s.submissionId)).size}</strong> pengisi survei, skor rata-rata kepuasan siswa secara keseluruhan adalah <strong class="text-indigo-600 text-lg">${avgAll} dari 5.00</strong>.</p>`;
-                
-                txt += `<ul class="list-none mt-4 space-y-3">`;
-                if (highest.score >= 3.5) txt += `<li class="flex gap-3"><span class="text-xl">🏆</span> <span class="block"><strong>Apresiasi:</strong> Kinerja tertinggi diraih oleh <strong>${esc(highest.label)}</strong> (Skor: ${highest.score}). Siswa merespons sangat positif terhadap pendekatan pembelajaran di kelas ini.</span></li>`;
-                
-                if (lowest.score < 3.5) {
-                    txt += `<li class="flex gap-3"><span class="text-xl">⚠️</span> <span class="block"><strong>Fokus Perbaikan:</strong> <strong>${esc(lowest.label)}</strong> mendapat skor terendah (${lowest.score}). Disarankan untuk meninjau kolom "Kritik & Saran" guna mengidentifikasi area yang perlu ditingkatkan.</span></li>`;
-                } else if (lowest.score !== highest.score) {
-                    txt += `<li class="flex gap-3"><span class="text-xl">💡</span> <span class="block"><strong>Catatan:</strong> Meskipun skor terendah ada pada <strong>${esc(lowest.label)}</strong> (${lowest.score}), angka tersebut masih tergolong positif.</span></li>`;
-                }
-                txt += `</ul>`;
-                interpretationBox.innerHTML = txt;
-            }
+            scored.sort((a, b) => b.score - a.score);
+            const hi = scored[0], lo = scored[scored.length - 1];
+            let txt = '<p class="font-medium text-slate-700">Dari total <strong class="text-indigo-600">' + ringkasan.pengisi + '</strong> pengisi survei (' + ringkasan.total + ' penilaian mapel), skor rata-rata kepuasan siswa secara keseluruhan adalah <strong class="text-indigo-600 text-lg">' + Number(ringkasan.skor).toFixed(2) + ' dari 5.00</strong>.</p><ul class="list-none mt-4 space-y-3">';
+            if (hi.score >= 3.5) txt += '<li class="flex gap-3"><span class="text-xl">🏆</span> <span class="block"><strong>Apresiasi:</strong> Kinerja tertinggi diraih oleh <strong>' + esc(hi.label) + '</strong> (Skor: ' + hi.score + '). Siswa merespons sangat positif terhadap pendekatan pembelajaran di kelas ini.</span></li>';
+            if (lo.score < 3.5) txt += '<li class="flex gap-3"><span class="text-xl">⚠️</span> <span class="block"><strong>Fokus Perbaikan:</strong> <strong>' + esc(lo.label) + '</strong> mendapat skor terendah (' + lo.score + '). Disarankan untuk meninjau kolom "Kritik & Saran" guna mengidentifikasi area yang perlu ditingkatkan.</span></li>';
+            else if (lo.score !== hi.score) txt += '<li class="flex gap-3"><span class="text-xl">💡</span> <span class="block"><strong>Catatan:</strong> Meskipun skor terendah ada pada <strong>' + esc(lo.label) + '</strong> (' + lo.score + '), angka tersebut masih tergolong positif.</span></li>';
+            box.innerHTML = txt + '</ul>';
         }
 
-        function renderAdminRecap() {
+        function renderAdminRecap(list) {
             const tbody = document.getElementById('recapTableBody');
-            tbody.innerHTML = '';
-            
-            if (appState.surveys.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="6" class="px-5 py-8 text-center text-slate-500 font-medium">Belum ada data survei yang masuk.</td></tr>`;
+            const info = document.getElementById('recapInfo');
+            const from = recapState.page * recapState.size;
+            document.getElementById('recapPrev').disabled = recapState.page === 0;
+            document.getElementById('recapNext').disabled = from + list.length >= recapState.total;
+
+            if (!list.length) {
+                tbody.innerHTML = '<tr><td colspan="6" class="px-5 py-8 text-center text-slate-500 font-medium">Tidak ada data untuk filter ini.</td></tr>';
+                info.textContent = '0 data';
                 return;
             }
-
-            const reversedSurveys = [...appState.surveys].reverse();
-            
-            reversedSurveys.forEach(s => {
-                let sum = 0;
-                QUESTIONS.forEach(q => sum += parseInt(s[q.id] || 0));
-                let avg = (sum / QUESTIONS.length).toFixed(1);
-
-                tbody.innerHTML += `
-                    <tr class="hover:bg-slate-50/50 transition-colors">
-                        <td class="px-5 py-4 whitespace-nowrap text-xs font-semibold text-slate-500">${s.timestamp}</td>
-                        <td class="px-5 py-4 whitespace-nowrap font-bold text-slate-700">${esc(s.kelas)}</td>
-                        <td class="px-5 py-4 whitespace-nowrap font-medium text-slate-700">${esc(s.mapel)}</td>
-                        <td class="px-5 py-4 text-center">
-                            <span class="inline-block bg-slate-100 px-2 py-1 rounded font-bold text-slate-700">${avg}</span>
-                        </td>
-                        <td class="px-5 py-4 min-w-[220px]">
-                            <p class="text-sm text-slate-600 bg-emerald-50/50 p-2 rounded-lg border border-emerald-100/50" title="${esc(s.halPositif)}">${esc(s.halPositif)}</p>
-                        </td>
-                        <td class="px-5 py-4 min-w-[220px]">
-                            <p class="text-sm text-slate-600 bg-rose-50/50 p-2 rounded-lg border border-rose-100/50" title="${esc(s.saran)}">${esc(s.saran)}</p>
-                        </td>
-                    </tr>
-                `;
-            });
+            info.textContent = 'Menampilkan ' + (from + 1) + '–' + (from + list.length) + ' dari ' + recapState.total;
+            const fmt = t => new Date(t).toLocaleString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+            tbody.innerHTML = list.map(r => {
+                const hp = r.hal_positif || '-', sr = r.saran || '-';
+                return '<tr class="hover:bg-slate-50/50 transition-colors">'
+                    + '<td class="px-5 py-4 whitespace-nowrap text-xs font-semibold text-slate-500">' + esc(fmt(r.created_at)) + '</td>'
+                    + '<td class="px-5 py-4 whitespace-nowrap font-bold text-slate-700">' + esc(r.kelas) + '</td>'
+                    + '<td class="px-5 py-4 whitespace-nowrap font-medium text-slate-700">' + esc(r.mapel) + '</td>'
+                    + '<td class="px-5 py-4 text-center"><span class="inline-block bg-slate-100 px-2 py-1 rounded font-bold text-slate-700">' + rowAvg(r).toFixed(1) + '</span></td>'
+                    + '<td class="px-5 py-4 min-w-[220px]"><p class="text-sm text-slate-600 bg-emerald-50/50 p-2 rounded-lg border border-emerald-100/50">' + esc(hp) + '</p></td>'
+                    + '<td class="px-5 py-4 min-w-[220px]"><p class="text-sm text-slate-600 bg-rose-50/50 p-2 rounded-lg border border-rose-100/50">' + esc(sr) + '</p></td></tr>';
+            }).join('');
         }
 
         /* ==========================================
